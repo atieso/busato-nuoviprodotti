@@ -5,6 +5,10 @@
 Scarica ARTICOLI.CSV da FTP, confronta con gli SKU pubblicati su Shopify
 e genera un CSV contenente **solo i prodotti nuovi**.
 
+Filtri applicati:
+- Esclude righe con ARDESART contenente '***'
+- Esclude righe dove ARCODART (SKU) non è numerico
+
 USO (API Shopify):
   export_new_products_from_ftp.py \
     --ftp-host ftp.andreat257.sg-host.com \
@@ -13,10 +17,6 @@ USO (API Shopify):
     --ftp-path "/public_html/IMPORT_DATI_FULL_20230919_0940/ARTICOLI.CSV" \
     --sku-header ARCODART \
     --out "NUOVI_PRODOTTI.csv"
-
-Variabili d'ambiente richieste (se usi Shopify API):
-  SHOPIFY_STORE  = es. a86246.myshopify.com
-  SHOPIFY_TOKEN  = token Admin API con read_products
 
 USO (senza API Shopify, con CSV SKU pubblicati):
   export_new_products_from_ftp.py ... --published-skus-csv "shopify_published_skus.csv"
@@ -34,7 +34,7 @@ from typing import List, Dict, Set, Optional
 try:
     import requests
 except ModuleNotFoundError:
-    raise SystemExit("ERROR: modulo 'requests' non installato. Aggiungi 'pip install requests' allo startCommand o requirements.txt.")
+    raise SystemExit("ERROR: modulo 'requests' non installato. Aggiungi 'pip install requests'.")
 
 try:
     from ftplib import FTP, FTP_TLS, error_perm
@@ -55,7 +55,8 @@ log = logging.getLogger("new-products")
 COMMON_SKU_HEADERS = [
     "SKU", "sku", "Codice", "CODICE", "codice",
     "CODART", "cod_articolo", "CodArt", "Cod_Art",
-    "Codice Articolo", "Articolo", "RIF_CODICE", "RIFCODE"
+    "Codice Articolo", "Articolo", "RIF_CODICE", "RIFCODE",
+    # se usi la patch a runtime, puoi anche aggiungere "ARCODART" qui
 ]
 
 def detect_delimiter(sample: str) -> str:
@@ -254,6 +255,9 @@ def main():
     log.info("Righe totali nel CSV di origine: %d", len(rows))
     log.info("Colonna SKU usata: %s", sku_header)
 
+    # Determina colonne per filtri aggiuntivi
+    ardesart_h = "ARDESART" if "ARDESART" in headers else None
+
     # 3) Recupera SKU pubblicati
     if args.published_skus_csv:
         published_skus = load_published_skus_from_csv(args.published_skus_csv)
@@ -265,24 +269,44 @@ def main():
             sys.exit(2)
         published_skus = shopify_get_all_skus(store, token)
 
-    # 4) Filtra righe con SKU nuovi (non presenti)
+    # 4) Filtra righe con SKU nuovi (non presenti) + regole business
     new_rows: List[Dict] = []
     seen_in_input: Set[str] = set()
-    empty_sku_rows: int = 0
+    empty_sku_rows = 0
+    skipped_stars_ardesart = 0
+    skipped_sku_not_numeric = 0
 
     for r in rows:
+        # Regola 1: escludi se ARDESART contiene '***'
+        if ardesart_h:
+            val = (r.get(ardesart_h) or "").strip()
+            if "***" in val:
+                skipped_stars_ardesart += 1
+                continue
+
         sku = (r.get(sku_header) or "").strip()
+
+        # Escludi righe senza SKU
         if not sku:
             empty_sku_rows += 1
             continue
-        # evita duplicati nel file sorgente
+
+        # Regola 2: escludi se SKU non è numerico (solo cifre consentite)
+        if not sku.isdigit():
+            skipped_sku_not_numeric += 1
+            continue
+
+        # Evita duplicati nel file sorgente
         if sku in seen_in_input:
             continue
         seen_in_input.add(sku)
+
         if sku not in published_skus:
             new_rows.append(r)
 
     log.info("Righe senza SKU: %d", empty_sku_rows)
+    log.info("Righe escluse per ARDESART contenente '***': %d", skipped_stars_ardesart)
+    log.info("Righe escluse per SKU non numerico in ARCODART: %d", skipped_sku_not_numeric)
     log.info("Nuovi prodotti rilevati: %d", len(new_rows))
 
     # 5) Scrivi output mantenendo le stesse colonne dell'input
