@@ -1,11 +1,11 @@
 services:
   - type: cron
-    name: sync-ftp-to-shopify
+    name: export-nuovi-prodotti
     runtime: python
     region: frankfurt
     plan: starter
-    # ATTENZIONE: gli orari cron di Render sono in UTC
-    schedule: "0 1 * * *"  # 03:00 Europe/Rome ~ 01:00 UTC (regola l'ora come preferisci)
+    # NB: gli orari cron su Render sono in UTC
+    schedule: "0 1 * * *"  # 03:00 Europe/Rome ≈ 01:00 UTC (in ora legale)
     envVars:
       - key: SHOPIFY_STORE
         sync: false
@@ -15,55 +15,22 @@ services:
         sync: false
       - key: FTP_USER
         sync: false
-      - key: FTP_PASS          # <-- rinomina così su Render (NON FTP_PASSWORD)
+      - key: FTP_PASS
         sync: false
-      - key: FTP_PATH          # <-- percorso completo del CSV (NON FTP_BASE_DIR)
+      - key: FTP_PATH
         sync: false
       - key: OUTPUT_FILE
         sync: false
       - key: TZ
-        sync: false
-    # Se preferisci, puoi anche usare:
-    # buildCommand: pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
-    buildCommand: ""
-    startCommand: |
-  bash -lc '
-    set -euo pipefail
-
-    echo "== ENV =="
-    echo "PWD=$(pwd)"
-    python3 -V || true
-    which python3 || true
-
-    echo "== Ensure pip in this Python =="
-    python3 -m ensurepip --upgrade || true
-    python3 -m pip --version || true
-
-    echo "== Install requests (runtime) =="
-    python3 -m pip install --upgrade pip
-    python3 -m pip install --no-cache-dir requests
-
-    echo "== Verify requests in THIS interpreter =="
-    python3 - <<'"'"'PY'"'"'
-import sys, pkgutil
-print("Executable:", sys.executable)
-print("requests available?", bool(pkgutil.find_loader("requests")))
-import requests
-print("requests version:", requests.__version__)
-PY
-
-    echo "== Repo files =="
-    ls -lah
-
-    echo "== RUN =="
-    echo "RUN $(date) — store=$SHOPIFY_STORE, out=${OUTPUT_FILE:-NUOVI_PRODOTTI.csv}"
-    python3 export_new_products_from_ftp.py \
-      --ftp-host "$FTP_HOST" \
-      --ftp-user "$FTP_USER" \
-      --ftp-pass "$FTP_PASS" \
-      --ftp-path "$FTP_PATH" \
-      --out "${OUTPUT_FILE:-NUOVI_PRODOTTI.csv}"
-
-    echo "== RESULT =="
-    ls -lah "${OUTPUT_FILE:-NUOVI_PRODOTTI.csv}" || true
-  '
+        value: Europe/Rome
+    buildCommand: pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
+    startCommand: >-
+      bash -lc 'set -euo pipefail;
+      echo "RUN $(date) — store=$SHOPIFY_STORE, out=${OUTPUT_FILE:-NUOVI_PRODOTTI.csv}";
+      python3 export_new_products_from_ftp.py
+        --ftp-host "$FTP_HOST"
+        --ftp-user "$FTP_USER"
+        --ftp-pass "$FTP_PASS"
+        --ftp-path "$FTP_PATH"
+        --out "${OUTPUT_FILE:-NUOVI_PRODOTTI.csv}";
+      ls -lah "${OUTPUT_FILE:-NUOVI_PRODOTTI.csv}" || true'
