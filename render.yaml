@@ -1,31 +1,28 @@
 services:
   - type: cron
-    name: export-nuovi-prodotti
+    name: sync-ftp-to-shopify
     runtime: python
-    schedule: "0 6 * * *"
+    region: frankfurt
+    plan: starter
+    schedule: "0 3 * * *"  # ogni giorno alle 03:00
     envVars:
       - key: SHOPIFY_STORE
-        value: a86246.myshopify.com
+        sync: false
       - key: SHOPIFY_TOKEN
-        value: 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
+        sync: false
       - key: FTP_HOST
-        value: ftp.andreat257.sg-host.com
+        sync: false
       - key: FTP_USER
-        value: admin@andreat257.sg-host.com
-      - key: FTP_PASS
-        value: 33;k;gk|k^y2
-      - key: FTP_PATH
-        value: /public_html/IMPORT_DATI_FULL_20230919_0940/ARTICOLI.CSV
-      - key: OUTPUT_FILE
-        value: NUOVI_PRODOTTI.csv
-      - key: TZ
-        value: Europe/Rome
-    buildCommand: pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
-startCommand: >-
-  bash -lc 'set -euo pipefail;
-  python -m pip install --upgrade pip >/dev/null 2>&1 || true;
-  pip install --no-cache-dir requests >/dev/null 2>&1;
-  echo "RUN $(date) — store=$SHOPIFY_STORE, out=$OUTPUT_FILE";
-  python3 export_new_products_from_ftp.py --ftp-host "$FTP_HOST" --ftp-user "$FTP_USER" --ftp-pass "$FTP_PASS" --ftp-path "$FTP_PATH" --out "$OUTPUT_FILE";
-  ls -lah "$OUTPUT_FILE" || true'
-
+        sync: false
+      - key: FTP_PASSWORD
+        sync: false
+      - key: FTP_BASE_DIR
+        sync: false
+      - key: FTP_USE_TLS
+        sync: false
+      - key: ALSO_ATTACH_TO_VARIANT
+        sync: false
+      - key: DRY_RUN
+        sync: false
+    buildCommand: ""
+    startCommand: "python sync_ftp_images_to_shopify.py"
