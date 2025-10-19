@@ -1,0 +1,30 @@
+services:
+  - type: cron
+    name: export-nuovi-prodotti
+    runtime: python
+    schedule: "0 6 * * *" # ogni giorno alle 6:00 del mattino (ora server)
+    envVars:
+      - key: SHOPIFY_STORE
+        value: .myshopify.com
+      - key: SHOPIFY_TOKEN
+        value: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+      - key: FTP_HOST
+        value: ftp.andreat257.sg-host.com
+      - key: FTP_USER
+        value: admin@andreat257.sg-host.com
+      - key: FTP_PASS
+        value: 33;k;gk|k^y2
+      - key: FTP_PATH
+        value: /public_html/IMPORT_DATI_FULL_20230919_0940/ARTICOLI.CSV
+      - key: OUTPUT_FILE
+        value: NUOVI_PRODOTTI.csv
+      - key: TZ
+        value: Europe/Rome
+    buildCommand: pip install -r requirements.txt
+    startCommand: >
+      python3 export_new_products_from_ftp.py
+      --ftp-host $FTP_HOST
+      --ftp-user "$FTP_USER"
+      --ftp-pass "$FTP_PASS"
+      --ftp-path "$FTP_PATH"
+      --out "$OUTPUT_FILE"
