@@ -11,11 +11,12 @@ USO (API Shopify):
     --ftp-user "admin@andreat257.sg-host.com" \
     --ftp-pass "33;k;gk|k^y2" \
     --ftp-path "/public_html/IMPORT_DATI_FULL_20230919_0940/ARTICOLI.CSV" \
+    --sku-header ARCODART \
     --out "NUOVI_PRODOTTI.csv"
 
 Variabili d'ambiente richieste (se usi Shopify API):
-  SHOPIFY_STORE  = es. city-tre-srl.myshopify.com
-  SHOPIFY_TOKEN  = token Admin API
+  SHOPIFY_STORE  = es. a86246.myshopify.com
+  SHOPIFY_TOKEN  = token Admin API con read_products
 
 USO (senza API Shopify, con CSV SKU pubblicati):
   export_new_products_from_ftp.py ... --published-skus-csv "shopify_published_skus.csv"
@@ -26,15 +27,14 @@ import io
 import os
 import sys
 import time
-import json
-import gzip
-import math
 import argparse
 import logging
 from typing import List, Dict, Set, Optional
-from contextlib import contextmanager
 
-import requests
+try:
+    import requests
+except ModuleNotFoundError:
+    raise SystemExit("ERROR: modulo 'requests' non installato. Aggiungi 'pip install requests' allo startCommand o requirements.txt.")
 
 try:
     from ftplib import FTP, FTP_TLS, error_perm
@@ -64,11 +64,9 @@ def detect_delimiter(sample: str) -> str:
         dialect = sniffer.sniff(sample, delimiters=";,|\t,")
         return dialect.delimiter
     except Exception:
-        # fallback più probabili in Italia
         return ";"
 
 def detect_encoding(raw: bytes) -> str:
-    # tentativi rapidi senza chardet
     for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
         try:
             raw.decode(enc)
@@ -78,59 +76,60 @@ def detect_encoding(raw: bytes) -> str:
     return "latin-1"
 
 def autodetect_sku_header(headers: List[str]) -> Optional[str]:
-    # match case-insensitive/normalizzato
-    norm = {h.strip().lower(): h for h in headers}
-    # prova match esatto normalizzato
+    norm = { (h or "").strip().lower(): (h or "") for h in headers }
     for candidate in [h.lower() for h in COMMON_SKU_HEADERS]:
         if candidate in norm:
             return norm[candidate]
-    # fallback: cerca "sku" o "cod"
     for h in headers:
-        hn = h.strip().lower()
+        hn = (h or "").strip().lower()
         if "sku" == hn or hn.startswith("cod"):
-            return h
+            return h or ""
     return None
 
-@contextmanager
 def ftp_connect(host: str, user: str, passwd: str, use_tls: bool = True):
     if use_tls and FTP_TLS is not None:
         ftp = FTP_TLS(host=host, timeout=60)
         ftp.login(user=user, passwd=passwd)
         try:
-            ftp.prot_p()  # dati in TLS se supportato
+            ftp.prot_p()
         except Exception:
             pass
     else:
         ftp = FTP(host=host, timeout=60)
         ftp.login(user=user, passwd=passwd)
-    try:
-        yield ftp
-    finally:
-        try:
-            ftp.quit()
-        except Exception:
-            pass
+    return ftp
 
 def ftp_download_file(host: str, user: str, passwd: str, path: str) -> bytes:
     log.info("Connessione FTP a %s ...", host)
+    if "/" not in path:
+        raise RuntimeError("FTP path non valido. Atteso percorso assoluto tipo /dir/file.csv")
     dirpath, filename = path.rsplit("/", 1)
     buf = io.BytesIO()
-    with ftp_connect(host, user, passwd, use_tls=True) as ftp:
-        # cambia directory
+    ftp = None
+    try:
+        ftp = ftp_connect(host, user, passwd, use_tls=True)
+    except Exception:
+        ftp = ftp_connect(host, user, passwd, use_tls=False)
+    try:
         if dirpath:
             log.info("Cambio directory: %s", dirpath)
             ftp.cwd(dirpath)
         log.info("Scarico file: %s", filename)
         ftp.retrbinary(f"RETR {filename}", buf.write)
+    finally:
+        try:
+            ftp.quit()
+        except Exception:
+            pass
     raw = buf.getvalue()
-    log.info("Scaricato %s bytes.", len(raw))
+    log.info("Scaricato %d bytes.", len(raw))
     return raw
 
 # ---------- Shopify ----------
 def shopify_get_all_skus(store: str, token: str) -> Set[str]:
     """
     Scarica TUTTI gli SKU dalle varianti prodotto.
-    Paginazione con header Link. Ritorna un set di stringhe SKU non vuote.
+    Paginazione con header Link. Ritorna un set di SKU non vuoti.
     """
     session = requests.Session()
     session.headers.update({
@@ -138,12 +137,9 @@ def shopify_get_all_skus(store: str, token: str) -> Set[str]:
         "Accept": "application/json",
     })
 
-    api_version = "2025-01"  # usa una versione recente
+    api_version = "2025-01"
     base = f"https://{store}/admin/api/{api_version}/products.json"
-    params = {
-        "limit": 250,
-        "fields": "id,variants",
-    }
+    params = {"limit": 250, "fields": "id,variants"}
 
     skus: Set[str] = set()
     url = base
@@ -162,32 +158,28 @@ def shopify_get_all_skus(store: str, token: str) -> Set[str]:
                 sku = (v.get("sku") or "").strip()
                 if sku:
                     skus.add(sku)
-        # controlla paginazione Link
         link = resp.headers.get("Link", "")
         next_url = None
         if link:
             parts = [p.strip() for p in link.split(",")]
             for part in parts:
                 if 'rel="next"' in part:
-                    # <https://...>; rel="next"
                     start = part.find("<") + 1
                     end = part.find(">")
                     next_url = part[start:end]
                     break
         if next_url:
             url = next_url
-            params = None  # già inclusi in next_url
+            params = None
         else:
             break
 
     log.info("SKU Shopify rilevati: %d", len(skus))
     return skus
 
-def read_csv_rows(raw: bytes):
+def read_csv_rows(raw: bytes, forced_sku_header: Optional[str] = None):
     enc = detect_encoding(raw)
     text = raw.decode(enc, errors="replace")
-
-    # sample per sniff delimitatore
     sample = text[:10000]
     delimiter = detect_delimiter(sample)
     log.info("Encoding rilevato: %s | Delimitatore: %r", enc, delimiter)
@@ -198,12 +190,19 @@ def read_csv_rows(raw: bytes):
     if not headers:
         raise RuntimeError("Intestazioni CSV non trovate.")
 
-    sku_header = autodetect_sku_header(headers)
+    if forced_sku_header:
+        if forced_sku_header not in headers:
+            raise RuntimeError(
+                f"Colonna SKU forzata '{forced_sku_header}' non trovata. Intestazioni disponibili: {headers}"
+            )
+        sku_header = forced_sku_header
+    else:
+        sku_header = autodetect_sku_header(headers)
+
     if not sku_header:
         raise RuntimeError(
             f"Colonna SKU non rilevata. Intestazioni disponibili: {headers}"
         )
-    log.info("Colonna SKU rilevata: %s", sku_header)
 
     rows = list(reader)
     return rows, headers, delimiter, sku_header
@@ -243,15 +242,17 @@ def main():
     ap.add_argument("--ftp-pass", required=True)
     ap.add_argument("--ftp-path", required=True, help="Percorso assoluto del file sul server FTP (es. /public_html/.../ARTICOLI.CSV)")
     ap.add_argument("--out", default="NUOVI_PRODOTTI.csv", help="Percorso output CSV filtrato")
-    ap.add_argument("--published-skus-csv", default=None, help="(Opzionale) CSV locale contenente SKU già pubblicati su Shopify; se presente, NON usa l'API Shopify.")
+    ap.add_argument("--published-skus-csv", default=None, help="(Opzionale) CSV locale con SKU già pubblicati su Shopify; se presente, NON usa l'API Shopify.")
+    ap.add_argument("--sku-header", default=None, help="Nome esatto della colonna SKU nel CSV (es. ARCODART)")
     args = ap.parse_args()
 
     # 1) Scarica CSV da FTP
     raw = ftp_download_file(args.ftp_host, args.ftp_user, args.ftp_pass, args.ftp_path)
 
-    # 2) Parsing CSV
-    rows, headers, delimiter, sku_header = read_csv_rows(raw)
+    # 2) Parsing CSV (con eventuale override dell'header SKU)
+    rows, headers, delimiter, sku_header = read_csv_rows(raw, forced_sku_header=args.sku_header)
     log.info("Righe totali nel CSV di origine: %d", len(rows))
+    log.info("Colonna SKU usata: %s", sku_header)
 
     # 3) Recupera SKU pubblicati
     if args.published_skus_csv:
