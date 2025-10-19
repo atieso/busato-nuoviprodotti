@@ -22,6 +22,7 @@ services:
         value: Europe/Rome
     buildCommand: pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
     startCommand: >-
-      bash -lc 'set -euo pipefail; echo "RUN $(date) — store=$SHOPIFY_STORE, out=$OUTPUT_FILE";
+      bash -lc 'set -euo pipefail;
+      echo "RUN $(date) — store=$SHOPIFY_STORE, out=$OUTPUT_FILE";
       python3 export_new_products_from_ftp.py --ftp-host "$FTP_HOST" --ftp-user "$FTP_USER" --ftp-pass "$FTP_PASS" --ftp-path "$FTP_PATH" --out "$OUTPUT_FILE";
       ls -lah "$OUTPUT_FILE" || true'
