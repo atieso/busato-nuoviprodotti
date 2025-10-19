@@ -5,9 +5,9 @@ services:
     schedule: "0 6 * * *" # ogni giorno alle 6:00 del mattino (ora server)
     envVars:
       - key: SHOPIFY_STORE
-        value: .myshopify.com
+        value: a86246.myshopify.com
       - key: SHOPIFY_TOKEN
-        value: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        value: 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
       - key: FTP_HOST
         value: ftp.andreat257.sg-host.com
       - key: FTP_USER
