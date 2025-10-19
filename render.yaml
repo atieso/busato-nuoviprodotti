@@ -24,4 +24,63 @@ services:
     startCommand: >
       bash -lc 'set -euo pipefail;
       echo "RUN $(date) — store=$SHOPIFY_STORE, out=$OUTPUT_FILE";
-      python3 export_new_products_from_ftp.py --ftp-host "$FTP_HOST" --ftp-user "$FTP_USER" --ftp-pass "$FTP_PASS" --ftp-path "$FTP_PATH" --out "$OUTPUT_FILE"'
+      python3 -V; python3 - <<PY
+      import sys, os
+      print("requests version check...")
+      try:
+          import requests
+          print("requests:", requests.__version__)
+      except Exception as e:
+          print("requests import FAILED:", e); sys.exit(1)
+      PY
+      echo "== Preflight: FTP check ==";
+      python3 - <<PY
+      import sys, io
+      from ftplib import FTP, FTP_TLS, error_perm
+      host=os.environ["FTP_HOST"]; user=os.environ["FTP_USER"]; pw=os.environ["FTP_PASS"]; path=os.environ["FTP_PATH"]
+      dirpath, filename = path.rsplit("/",1)
+      try:
+          # tenta FTPS esplicito
+          try:
+              ftp=FTP_TLS(host=host, timeout=30); ftp.login(user=user, passwd=pw)
+              try: ftp.prot_p()
+              except Exception: pass
+          except Exception as e:
+              print("FTPS failed, try plain FTP:", e)
+              ftp=FTP(host=host, timeout=30); ftp.login(user=user, passwd=pw)
+          if dirpath: ftp.cwd(dirpath)
+          print("FTP OK. PWD:", ftp.pwd())
+          files=[]
+          ftp.retrlines("LIST", files.append)
+          print("LIST count:", len(files))
+          # prova a leggere solo i primi 8KB
+          buf = io.BytesIO()
+          ftp.retrbinary(f"RETR {filename}", buf.write, blocksize=8192)
+          print("RETR OK, bytes read:", buf.tell())
+          ftp.quit()
+      except error_perm as e:
+          print("FTP permission/path error:", e); sys.exit(2)
+      except Exception as e:
+          print("FTP generic error:", e); sys.exit(3)
+      PY
+      echo "== Preflight: Shopify token check ==";
+      python3 - <<PY
+      import os, sys, requests
+      store=os.environ["SHOPIFY_STORE"]; token=os.environ["SHOPIFY_TOKEN"]
+      url=f"https://{store}/admin/api/2025-01/shop.json"
+      r=requests.get(url, headers={"X-Shopify-Access-Token": token, "Accept":"application/json"}, timeout=20)
+      print("HTTP", r.status_code)
+      if r.status_code==401 or r.status_code==403:
+          print("Shopify token/scopes issue (serve almeno read_products)."); sys.exit(4)
+      elif r.status_code>=400:
+          print("Shopify unexpected error:", r.text[:300]); sys.exit(5)
+      else:
+          print("Shopify token OK.")
+      PY
+      echo "== Run main script ==";
+      python3 export_new_products_from_ftp.py --ftp-host "$FTP_HOST" --ftp-user "$FTP_USER" --ftp-pass "$FTP_PASS" --ftp-path "$FTP_PATH" --out "$OUTPUT_FILE";
+      echo "== Result ==";
+      ls -lah "$OUTPUT_FILE" || true
+      head -n 3 "$OUTPUT_FILE" || true
+      tail -n 3 "$OUTPUT_FILE" || true
+      '
