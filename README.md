@@ -8,12 +8,6 @@ Script Python per scaricare `ARTICOLI.CSV` da FTP, confrontare gli SKU con quell
 - Dipendenze: `pip install -r requirements.txt`
 - Accesso FTP e API Shopify Admin
 
-## ⚙️ Variabili ambiente
-Imposta nel file `.env`:
-
-SHOPIFY_STORE=a86246.myshopify.com
-SHOPIFY_TOKEN=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
-
 ## 🚀 Esecuzione
 ```bash
 python3 export_new_products_from_ftp.py \
