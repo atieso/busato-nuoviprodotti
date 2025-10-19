@@ -5,9 +5,11 @@
 Scarica ARTICOLI.CSV da FTP, confronta con gli SKU pubblicati su Shopify
 e genera un CSV contenente **solo i prodotti nuovi**.
 
-Filtri applicati:
+Regole applicate:
 - Esclude righe con ARDESART contenente '***'
-- Esclude righe dove ARCODART (SKU) non è numerico
+- Esclude righe dove ARCODART non è numerico
+- Normalizza ARCODART a 6 cifre con zeri a sinistra (es. 5522 -> 005522)
+- Se ARCODART ha >6 cifre (tutte numeriche), scarta la riga e logga
 
 USO (API Shopify):
   export_new_products_from_ftp.py \
@@ -56,7 +58,6 @@ COMMON_SKU_HEADERS = [
     "SKU", "sku", "Codice", "CODICE", "codice",
     "CODART", "cod_articolo", "CodArt", "Cod_Art",
     "Codice Articolo", "Articolo", "RIF_CODICE", "RIFCODE",
-    # se usi la patch a runtime, puoi anche aggiungere "ARCODART" qui
 ]
 
 def detect_delimiter(sample: str) -> str:
@@ -126,11 +127,39 @@ def ftp_download_file(host: str, user: str, passwd: str, path: str) -> bytes:
     log.info("Scaricato %d bytes.", len(raw))
     return raw
 
+# ---------- Normalizzazione SKU ----------
+def normalize_sku_to_6_digits(value: str) -> Optional[str]:
+    """
+    Ritorna lo SKU normalizzato a 6 cifre (pad con zeri) se value è composto da sole cifre ed ha lunghezza 1..6.
+    - Se value è vuoto o contiene caratteri non numerici -> None (da scartare)
+    - Se value è numerico ma ha lunghezza >6 -> None (da scartare e loggare)
+    """
+    s = (value or "").strip()
+    if not s or not s.isdigit():
+        return None
+    if len(s) > 6:
+        return None
+    return s.zfill(6)
+
+def add_sku_variants_to_set(s: str, target: Set[str]) -> None:
+    """
+    Aggiunge allo set sia la forma originale sia (se applicabile) la forma normalizzata a 6 cifre.
+    Questo permette di gestire negozi dove gli SKU su Shopify possono essere salvati con o senza zeri iniziali.
+    """
+    raw = (s or "").strip()
+    if not raw:
+        return
+    target.add(raw)
+    norm = normalize_sku_to_6_digits(raw)
+    if norm:
+        target.add(norm)
+
 # ---------- Shopify ----------
 def shopify_get_all_skus(store: str, token: str) -> Set[str]:
     """
     Scarica TUTTI gli SKU dalle varianti prodotto.
-    Paginazione con header Link. Ritorna un set di SKU non vuoti.
+    Paginazione con header Link. Ritorna un set che include
+    sia gli SKU così come sono su Shopify, sia la versione normalizzata a 6 cifre (se numerica <=6).
     """
     session = requests.Session()
     session.headers.update({
@@ -158,7 +187,7 @@ def shopify_get_all_skus(store: str, token: str) -> Set[str]:
             for v in p.get("variants", []):
                 sku = (v.get("sku") or "").strip()
                 if sku:
-                    skus.add(sku)
+                    add_sku_variants_to_set(sku, skus)
         link = resp.headers.get("Link", "")
         next_url = None
         if link:
@@ -175,7 +204,7 @@ def shopify_get_all_skus(store: str, token: str) -> Set[str]:
         else:
             break
 
-    log.info("SKU Shopify rilevati: %d", len(skus))
+    log.info("SKU Shopify rilevati (insieme normalizzato): %d", len(skus))
     return skus
 
 def read_csv_rows(raw: bytes, forced_sku_header: Optional[str] = None):
@@ -209,6 +238,7 @@ def read_csv_rows(raw: bytes, forced_sku_header: Optional[str] = None):
     return rows, headers, delimiter, sku_header
 
 def load_published_skus_from_csv(path: str) -> Set[str]:
+    skus: Set[str] = set()
     with open(path, "r", encoding="utf-8") as f:
         sample = f.read(10000)
         delim = detect_delimiter(sample)
@@ -220,13 +250,12 @@ def load_published_skus_from_csv(path: str) -> Set[str]:
             raise RuntimeError(
                 f"Impossibile rilevare colonna SKU nel CSV pubblicato. Headers: {headers}"
             )
-        skus = set()
         for r in reader:
-            sku = (r.get(sku_h) or "").strip()
-            if sku:
-                skus.add(sku)
-        log.info("SKU pubblicati (da CSV): %d", len(skus))
-        return skus
+            s = (r.get(sku_h) or "").strip()
+            if s:
+                add_sku_variants_to_set(s, skus)
+    log.info("SKU pubblicati (da CSV, insieme normalizzato): %d", len(skus))
+    return skus
 
 def write_csv(path: str, headers: List[str], delimiter: str, rows: List[Dict]):
     with open(path, "w", encoding="utf-8", newline="") as f:
@@ -255,7 +284,7 @@ def main():
     log.info("Righe totali nel CSV di origine: %d", len(rows))
     log.info("Colonna SKU usata: %s", sku_header)
 
-    # Determina colonne per filtri aggiuntivi
+    # Colonna per filtri extra
     ardesart_h = "ARDESART" if "ARDESART" in headers else None
 
     # 3) Recupera SKU pubblicati
@@ -269,12 +298,14 @@ def main():
             sys.exit(2)
         published_skus = shopify_get_all_skus(store, token)
 
-    # 4) Filtra righe con SKU nuovi (non presenti) + regole business
+    # 4) Filtra righe con regole + confronto con Shopify (insieme normalizzato)
     new_rows: List[Dict] = []
     seen_in_input: Set[str] = set()
+
     empty_sku_rows = 0
     skipped_stars_ardesart = 0
     skipped_sku_not_numeric = 0
+    skipped_sku_too_long = 0
 
     for r in rows:
         # Regola 1: escludi se ARDESART contiene '***'
@@ -284,32 +315,40 @@ def main():
                 skipped_stars_ardesart += 1
                 continue
 
-        sku = (r.get(sku_header) or "").strip()
+        raw_sku = (r.get(sku_header) or "").strip()
 
-        # Escludi righe senza SKU
-        if not sku:
+        if not raw_sku:
             empty_sku_rows += 1
             continue
 
-        # Regola 2: escludi se SKU non è numerico (solo cifre consentite)
-        if not sku.isdigit():
-            skipped_sku_not_numeric += 1
+        # Normalizza a 6 cifre; se non numerico o troppo lungo -> scarta
+        norm = normalize_sku_to_6_digits(raw_sku)
+        if norm is None:
+            if raw_sku.isdigit() and len(raw_sku) > 6:
+                skipped_sku_too_long += 1
+            else:
+                skipped_sku_not_numeric += 1
             continue
 
-        # Evita duplicati nel file sorgente
-        if sku in seen_in_input:
+        # Evita duplicati nell'input (dopo normalizzazione)
+        if norm in seen_in_input:
             continue
-        seen_in_input.add(sku)
+        seen_in_input.add(norm)
 
-        if sku not in published_skus:
+        # Aggiorna la riga con lo SKU normalizzato (così l'output è già corretto a 6 cifre)
+        r[sku_header] = norm
+
+        # Confronto con Shopify: published_skus contiene sia raw sia padded
+        if norm not in published_skus:
             new_rows.append(r)
 
     log.info("Righe senza SKU: %d", empty_sku_rows)
     log.info("Righe escluse per ARDESART contenente '***': %d", skipped_stars_ardesart)
-    log.info("Righe escluse per SKU non numerico in ARCODART: %d", skipped_sku_not_numeric)
+    log.info("Righe escluse per SKU non numerico/invalidi: %d", skipped_sku_not_numeric)
+    log.info("Righe escluse per SKU > 6 cifre: %d", skipped_sku_too_long)
     log.info("Nuovi prodotti rilevati: %d", len(new_rows))
 
-    # 5) Scrivi output mantenendo le stesse colonne dell'input
+    # 5) Scrivi output mantenendo le stesse colonne dell'input (con SKU a 6 cifre)
     write_csv(args.out, headers, delimiter, new_rows)
 
 if __name__ == "__main__":
