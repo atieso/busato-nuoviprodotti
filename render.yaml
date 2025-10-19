@@ -25,4 +25,4 @@ services:
       - key: DRY_RUN
         sync: false
     buildCommand: ""
-    startCommand: "python sync_ftp_images_to_shopify.py"
+    startCommand: "export_new_products_from_ftp.py"
