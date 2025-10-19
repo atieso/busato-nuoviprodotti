@@ -11,8 +11,8 @@ Script Python per scaricare `ARTICOLI.CSV` da FTP, confrontare gli SKU con quell
 ## ⚙️ Variabili ambiente
 Imposta nel file `.env`:
 
-SHOPIFY_STORE=city-tre-srl.myshopify.com
-SHOPIFY_TOKEN=xxxxxx
+SHOPIFY_STORE=a86246.myshopify.com
+SHOPIFY_TOKEN=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
 
 ## 🚀 Esecuzione
 ```bash
