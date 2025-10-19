@@ -4,7 +4,8 @@ services:
     runtime: python
     region: frankfurt
     plan: starter
-    schedule: "0 3 * * *"  # ogni giorno alle 03:00
+    # ATTENZIONE: gli orari cron di Render sono in UTC
+    schedule: "0 1 * * *"  # 03:00 Europe/Rome ~ 01:00 UTC (regola l'ora come preferisci)
     envVars:
       - key: SHOPIFY_STORE
         sync: false
@@ -14,15 +15,26 @@ services:
         sync: false
       - key: FTP_USER
         sync: false
-      - key: FTP_PASSWORD
+      - key: FTP_PASS          # <-- rinomina così su Render (NON FTP_PASSWORD)
         sync: false
-      - key: FTP_BASE_DIR
+      - key: FTP_PATH          # <-- percorso completo del CSV (NON FTP_BASE_DIR)
         sync: false
-      - key: FTP_USE_TLS
+      - key: OUTPUT_FILE
         sync: false
-      - key: ALSO_ATTACH_TO_VARIANT
+      - key: TZ
         sync: false
-      - key: DRY_RUN
-        sync: false
+    # Se preferisci, puoi anche usare:
+    # buildCommand: pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
     buildCommand: ""
-    startCommand: "export_new_products_from_ftp.py"
+    startCommand: >-
+      bash -lc 'set -euo pipefail;
+      python -m pip install --upgrade pip >/dev/null 2>&1 || true;
+      pip install --no-cache-dir requests >/dev/null 2>&1;
+      echo "RUN $(date) — store=$SHOPIFY_STORE, out=${OUTPUT_FILE:-NUOVI_PRODOTTI.csv}";
+      python3 export_new_products_from_ftp.py
+        --ftp-host "$FTP_HOST"
+        --ftp-user "$FTP_USER"
+        --ftp-pass "$FTP_PASS"
+        --ftp-path "$FTP_PATH"
+        --out "${OUTPUT_FILE:-NUOVI_PRODOTTI.csv}";
+      ls -lah "${OUTPUT_FILE:-NUOVI_PRODOTTI.csv}" || true'
