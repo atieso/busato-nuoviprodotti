@@ -15,7 +15,7 @@ USO (API Shopify):
   export_new_products_from_ftp.py \
     --ftp-host ftp.andreat257.sg-host.com \
     --ftp-user "admin@andreat257.sg-host.com" \
-    --ftp-pass "33;k;gk|k^y2" \
+    --ftp-pass "1z$*j236|*db" \
     --ftp-path "/public_html/IMPORT_DATI_FULL_20230919_0940/ARTICOLI.CSV" \
     --sku-header ARCODART \
     --out "NUOVI_PRODOTTI.csv"
