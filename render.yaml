@@ -2,7 +2,6 @@ services:
   - type: cron
     name: export-nuovi-prodotti
     runtime: python
-    region: frankfurt
     plan: starter
     # NB: gli orari cron su Render sono in UTC
     schedule: "0 1 * * *"  # 03:00 Europe/Rome ≈ 01:00 UTC (in ora legale)
