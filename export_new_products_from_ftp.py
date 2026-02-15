@@ -156,7 +156,63 @@ def add_sku_variants_to_set(s: str, target: Set[str]) -> None:
         target.add(norm)
 
 # ---------- Shopify ----------
+import json
+import urllib.request
+import urllib.parse
+
 def shopify_get_all_skus(store: str, token: str) -> Set[str]:
+    """
+    Scarica TUTTI gli SKU dalle varianti prodotto usando solo urllib (no requests).
+    """
+    api_version = "2025-01"
+    base = f"https://{store}/admin/api/{api_version}/products.json"
+    params = {"limit": 250, "fields": "id,variants"}
+
+    skus: Set[str] = set()
+
+    def fetch(url, params=None):
+        if params:
+            url = url + "?" + urllib.parse.urlencode(params)
+        req = urllib.request.Request(url)
+        req.add_header("X-Shopify-Access-Token", token)
+        req.add_header("Accept", "application/json")
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return resp.read(), resp.headers
+
+    url = base
+    first = True
+
+    while True:
+        raw, headers = fetch(url, params if first else None)
+        first = False
+        data = json.loads(raw.decode("utf-8"))
+        products = data.get("products", [])
+
+        for p in products:
+            for v in p.get("variants", []):
+                sku = (v.get("sku") or "").strip()
+                if sku:
+                    skus.add(sku)
+
+        link = headers.get("Link")
+        next_url = None
+        if link:
+            parts = [p.strip() for p in link.split(",")]
+            for part in parts:
+                if 'rel="next"' in part:
+                    start = part.find("<") + 1
+                    end = part.find(">")
+                    next_url = part[start:end]
+                    break
+
+        if next_url:
+            url = next_url
+        else:
+            break
+
+    log.info("SKU Shopify rilevati: %d", len(skus))
+    return skus
+  
     """
     Scarica TUTTI gli SKU dalle varianti prodotto.
     Paginazione con header Link. Ritorna un set che include
