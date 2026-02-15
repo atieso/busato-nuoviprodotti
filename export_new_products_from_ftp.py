@@ -35,11 +35,6 @@ import logging
 from typing import List, Dict, Set, Optional
 
 try:
-    import requests
-except ModuleNotFoundError:
-    raise SystemExit("ERROR: modulo 'requests' non installato. Aggiungi 'pip install requests'.")
-
-try:
     from ftplib import FTP, FTP_TLS, error_perm
 except Exception:
     FTP = None
