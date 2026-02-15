@@ -1,3 +1,5 @@
+log.info("STORE usato: %s", store)
+log.info("TOKEN primi 8 caratteri: %s", token[:8])
 
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
