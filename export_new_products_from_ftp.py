@@ -161,7 +161,7 @@ def shopify_get_all_skus(store: str, token: str) -> Set[str]:
     """
     Scarica TUTTI gli SKU dalle varianti prodotto usando solo urllib (no requests).
     """
-    api_version = "2024-01"
+    api_version = "2023-10"
     base = f"https://{store}/admin/api/{api_version}/products.json"
     params = {"limit": 250, "fields": "id,variants"}
 
