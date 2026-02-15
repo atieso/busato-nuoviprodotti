@@ -169,14 +169,14 @@ def shopify_get_all_skus(store: str, token: str) -> Set[str]:
     def fetch(url, params=None):
         if params:
             url = url + "?" + urllib.parse.urlencode(params)
-req = urllib.request.Request(url)
-req.add_header("X-Shopify-Access-Token", token)
-req.add_header("Content-Type", "application/json")
-req.add_header("Accept", "application/json")
-req.add_header("User-Agent", "Mozilla/5.0")
-req.add_header("X-Requested-With", "XMLHttpRequest")
-
-with urllib.request.urlopen(req, timeout=60) as resp:
+          req = urllib.request.Request(url)
+          req.add_header("X-Shopify-Access-Token", token)
+          req.add_header("Content-Type", "application/json")
+          req.add_header("Accept", "application/json")
+          req.add_header("User-Agent", "Mozilla/5.0")
+          req.add_header("X-Requested-With", "XMLHttpRequest")
+          
+          with urllib.request.urlopen(req, timeout=60) as resp:
             return resp.read(), resp.headers
 
     url = base
