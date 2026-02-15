@@ -2,9 +2,21 @@ services:
   - type: cron
     name: export-nuovi-prodotti
     runtime: python
+    region: frankfurt
     plan: starter
-    # NB: gli orari cron su Render sono in UTC
-    schedule: "0 1 * * *"  # 03:00 Europe/Rome ≈ 01:00 UTC (in ora legale)
+    schedule: "0 1 * * *"
+
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+
+    startCommand: >
+      python3 -u export_new_products_from_ftp.py
+      --ftp-host "$FTP_HOST"
+      --ftp-user "$FTP_USER"
+      --ftp-pass "$FTP_PASS"
+      --ftp-path "$FTP_PATH"
+      --sku-header ARCODART
+      --out "${OUTPUT_FILE:-NUOVI_PRODOTTI.csv}"
+
     envVars:
       - key: SHOPIFY_STORE
         sync: false
@@ -20,16 +32,3 @@ services:
         sync: false
       - key: OUTPUT_FILE
         sync: false
-      - key: TZ
-        value: Europe/Rome
-    buildCommand: pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
-    startCommand: >-
-      bash -lc 'set -euo pipefail;
-      echo "RUN $(date) — store=$SHOPIFY_STORE, out=${OUTPUT_FILE:-NUOVI_PRODOTTI.csv}";
-      python3 export_new_products_from_ftp.py
-        --ftp-host "$FTP_HOST"
-        --ftp-user "$FTP_USER"
-        --ftp-pass "$FTP_PASS"
-        --ftp-path "$FTP_PATH"
-        --out "${OUTPUT_FILE:-NUOVI_PRODOTTI.csv}";
-      ls -lah "${OUTPUT_FILE:-NUOVI_PRODOTTI.csv}" || true'
