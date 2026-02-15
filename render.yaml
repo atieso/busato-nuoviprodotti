@@ -6,7 +6,7 @@ services:
     plan: starter
     schedule: "0 1 * * *"
 
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt
 
     startCommand: >
       python3 -u export_new_products_from_ftp.py
