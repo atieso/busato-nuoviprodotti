@@ -2,7 +2,6 @@ services:
   - type: cron
     name: export-nuovi-prodotti
     runtime: python
-    region: frankfurt
     plan: starter
     schedule: "0 1 * * *"
 
