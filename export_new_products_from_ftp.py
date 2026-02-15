@@ -1,5 +1,4 @@
-log.info("STORE usato: %s", store)
-log.info("TOKEN primi 8 caratteri: %s", token[:8])
+
 
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
@@ -347,6 +346,8 @@ def main():
     else:
         store = os.getenv("SHOPIFY_STORE", "").strip()
         token = os.getenv("SHOPIFY_TOKEN", "").strip()
+        log.info("STORE usato: %s", store)
+        log.info("TOKEN primi 8 caratteri: %s", token[:8] if token else "VUOTO")
         if not store or not token:
             log.error("Mancano variabili d'ambiente SHOPIFY_STORE / SHOPIFY_TOKEN oppure --published-skus-csv. Interrompo.")
             sys.exit(2)
