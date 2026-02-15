@@ -158,57 +158,51 @@ import urllib.parse
 
 def shopify_get_all_skus(store: str, token: str) -> Set[str]:
     """
-    Scarica TUTTI gli SKU dalle varianti prodotto usando solo urllib (no requests).
+    Scarica tutti gli SKU delle varianti prodotto da Shopify
+    usando urllib (senza requests).
     """
+
+    import json
+    import urllib.request
+    import urllib.parse
+
     api_version = "2023-10"
-    base = f"https://{store}/admin/api/{api_version}/products.json"
-    params = {"limit": 250, "fields": "id,variants"}
+    base_url = f"https://{store}/admin/api/{api_version}/products.json"
 
     skus: Set[str] = set()
+    next_url = base_url + "?limit=250&fields=id,variants"
 
-    def fetch(url, params=None):
-        if params:
-            url = url + "?" + urllib.parse.urlencode(params)
-          req = urllib.request.Request(url)
-          req.add_header("X-Shopify-Access-Token", token)
-          req.add_header("Content-Type", "application/json")
-          req.add_header("Accept", "application/json")
-          req.add_header("User-Agent", "Mozilla/5.0")
-          req.add_header("X-Requested-With", "XMLHttpRequest")
-          
-          with urllib.request.urlopen(req, timeout=60) as resp:
-            return resp.read(), resp.headers
+    while next_url:
+        req = urllib.request.Request(next_url)
+        req.add_header("X-Shopify-Access-Token", token)
+        req.add_header("Content-Type", "application/json")
+        req.add_header("Accept", "application/json")
+        req.add_header("User-Agent", "Render-Cron/1.0")
 
-    url = base
-    first = True
+        with urllib.request.urlopen(req, timeout=60) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            headers = response.headers
 
-    while True:
-        raw, headers = fetch(url, params if first else None)
-        first = False
-        data = json.loads(raw.decode("utf-8"))
         products = data.get("products", [])
 
-        for p in products:
-            for v in p.get("variants", []):
-                sku = (v.get("sku") or "").strip()
+        for product in products:
+            for variant in product.get("variants", []):
+                sku = (variant.get("sku") or "").strip()
                 if sku:
                     skus.add(sku)
 
-        link = headers.get("Link")
+        # gestione paginazione Shopify
+        link_header = headers.get("Link")
         next_url = None
-        if link:
-            parts = [p.strip() for p in link.split(",")]
+
+        if link_header:
+            parts = link_header.split(",")
             for part in parts:
                 if 'rel="next"' in part:
                     start = part.find("<") + 1
                     end = part.find(">")
                     next_url = part[start:end]
                     break
-
-        if next_url:
-            url = next_url
-        else:
-            break
 
     log.info("SKU Shopify rilevati: %d", len(skus))
     return skus
