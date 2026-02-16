@@ -152,36 +152,31 @@ def add_sku_variants_to_set(s: str, target: Set[str]) -> None:
         target.add(norm)
 
 # ---------- Shopify ----------
+import http.client
 import json
-import urllib.request
-import urllib.parse
 
 def shopify_get_all_skus(store: str, token: str) -> Set[str]:
-    """
-    Scarica tutti gli SKU delle varianti prodotto da Shopify
-    usando urllib (senza requests).
-    """
-
-    import json
-    import urllib.request
-    import urllib.parse
-
     api_version = "2023-10"
-    base_url = f"https://{store}/admin/api/{api_version}/shop.json"
+    connection = http.client.HTTPSConnection(store)
 
     skus: Set[str] = set()
-    next_url = base_url + "?limit=250&fields=id,variants"
+    path = f"/admin/api/{api_version}/products.json?limit=250&fields=id,variants"
 
-    while next_url:
-        req = urllib.request.Request(next_url)
-        req.add_header("X-Shopify-Access-Token", token)
-        req.add_header("Content-Type", "application/json")
-        req.add_header("Accept", "application/json")
-        req.add_header("User-Agent", "Render-Cron/1.0")
+    while path:
+        headers = {
+            "X-Shopify-Access-Token": token,
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
 
-        with urllib.request.urlopen(req, timeout=60) as response:
-            data = json.loads(response.read().decode("utf-8"))
-            headers = response.headers
+        connection.request("GET", path, headers=headers)
+        response = connection.getresponse()
+
+        if response.status != 200:
+            raise Exception(f"Shopify API error {response.status}: {response.read().decode()}")
+
+        data = json.loads(response.read().decode())
+        link_header = response.getheader("Link")
 
         products = data.get("products", [])
 
@@ -191,10 +186,8 @@ def shopify_get_all_skus(store: str, token: str) -> Set[str]:
                 if sku:
                     skus.add(sku)
 
-        # gestione paginazione Shopify
-        link_header = headers.get("Link")
-        next_url = None
-
+        # Gestione paginazione
+        path = None
         if link_header:
             parts = link_header.split(",")
             for part in parts:
@@ -202,8 +195,10 @@ def shopify_get_all_skus(store: str, token: str) -> Set[str]:
                     start = part.find("<") + 1
                     end = part.find(">")
                     next_url = part[start:end]
+                    path = next_url.split(store)[-1]
                     break
 
+    connection.close()
     log.info("SKU Shopify rilevati: %d", len(skus))
     return skus
   
