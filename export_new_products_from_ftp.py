@@ -167,7 +167,7 @@ def shopify_get_all_skus(store: str, token: str) -> Set[str]:
     import urllib.parse
 
     api_version = "2023-10"
-    base_url = f"https://{store}/admin/api/{api_version}/products.json"
+    base_url = f"https://{store}/admin/api/{api_version}/shop.json"
 
     skus: Set[str] = set()
     next_url = base_url + "?limit=250&fields=id,variants"
